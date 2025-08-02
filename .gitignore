@@ -1,0 +1,8 @@
+# IDE
+src/.idea/
+
+# Release script
+release.php
+
+# Readme (if internal only)
+README.md
