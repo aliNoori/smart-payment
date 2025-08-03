@@ -3,45 +3,59 @@
 namespace SmartPayment\Services;
 
 use SmartPayment\Contracts\PaymentServiceInterface;
-use SmartPayment\Factories\GatewayFactory;
-use SmartPayment\Models\Order;
-use SmartPayment\Models\Transaction;
 use SmartPayment\Core\PaymentManager;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
 use Exception;
 
+/**
+ * Class PaymentService
+ *
+ * Handles payment flow logic including order creation, transaction initiation,
+ * and verification. Uses dynamic model resolution from config for flexibility.
+ *
+ * @package SmartPayment\Services
+ */
 class PaymentService implements PaymentServiceInterface
 {
+    /**
+     * Create a new order and initiate a payment transaction.
+     *
+     * @param array $data Input data including amount, gateway, callback_url, and meta
+     * @return array Contains order instance and redirect URL
+     *
+     * @throws Exception
+     */
     public function createOrderWithTransaction(array $data): array
     {
-
         return DB::transaction(function () use ($data) {
             $userId = auth()->id();
             $gatewayName = $data['gateway'] ?? config('smart-payment.default');
             $callbackUrl = $data['callback_url'] ?? route('payment.callback');
 
-            // ایجاد سفارش
-            $order = Order::create([
+            // Dynamically resolve Order model from config
+            $orderModel = config('smart-payment.models.order');
+            $order = $orderModel::create([
                 'user_id' => $userId,
                 'amount' => $data['amount'],
                 'status' => 'pending',
                 'description' => $data['meta']['description'] ?? null,
             ]);
 
-            // ایجاد درگاه
+            // Resolve gateway instance
             $gateway = PaymentManager::resolve($gatewayName);
 
-            // ایجاد لینک پرداخت
+            // Initiate payment and get redirect URL
             $result = $gateway->initiatePayment(
                 $data['amount'],
                 $callbackUrl . '?gateway=' . $gatewayName . '&order_id=' . $order->id,
                 $data['meta'] ?? []
             );
 
-            // ثبت تراکنش اولیه
-            Transaction::create([
+            // Dynamically resolve Transaction model from config
+            $transactionModel = config('smart-payment.models.transaction');
+            $transactionModel::create([
                 'order_id' => $order->id,
                 'gateway' => $gatewayName,
                 'amount' => $data['amount'],
@@ -57,6 +71,14 @@ class PaymentService implements PaymentServiceInterface
         });
     }
 
+    /**
+     * Verify a transaction after user returns from the gateway.
+     *
+     * @param array $data Callback data from the gateway
+     * @return array Contains verified order and reference ID
+     *
+     * @throws Exception
+     */
     public function verifyTransaction(array $data): array
     {
         return DB::transaction(function () use ($data) {
@@ -64,18 +86,25 @@ class PaymentService implements PaymentServiceInterface
             $gatewayName = $data['gateway'] ?? config('smart-payment.default');
             $authority = $data['Authority'] ?? null;
 
-            $order = Order::findOrFail($orderId);
+            // Dynamically resolve Order model from config
+            $orderModel = config('smart-payment.models.order');
+            $order = $orderModel::findOrFail($orderId);
+
             $gateway = PaymentManager::resolve($gatewayName);
 
+            // Verify transaction with gateway
             $verifyResult = $gateway->verify([
                 ...$data,
                 'Amount' => $order->amount,
             ]);
 
-            $transaction = $order->transactions()
+            // Dynamically resolve Transaction model from config
+            $transactionModel = config('smart-payment.models.transaction');
+            $transaction = $transactionModel::where('order_id', $order->id)
                 ->where('authority', $authority)
                 ->firstOrFail();
 
+            // Update transaction with verification result
             $transaction->update([
                 'status' => $verifyResult['Message'] ?? null,
                 'ref_id' => $verifyResult['RefID'] ?? null,
@@ -84,6 +113,7 @@ class PaymentService implements PaymentServiceInterface
                 'paid_at' => Carbon::now(),
             ]);
 
+            // Update order status
             $order->update(['status' => 'paid']);
 
             return [

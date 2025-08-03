@@ -9,6 +9,14 @@ use SmartPayment\Contracts\PaymentGatewayInterface;
 use SmartPayment\Contracts\VerifiesTransactionsInterface;
 use Exception;
 
+/**
+ * Class ZarinpalGateway
+ *
+ * This class provides integration with Zarinpal payment gateway.
+ * It supports initiating payments and verifying transactions via Zarinpal's REST API.
+ *
+ * @package SmartPayment\Gateways
+ */
 class ZarinpalGateway implements PaymentGatewayInterface, VerifiesTransactionsInterface
 {
     protected string $merchantId;
@@ -17,19 +25,30 @@ class ZarinpalGateway implements PaymentGatewayInterface, VerifiesTransactionsIn
     protected string $redirectUrl;
     protected string $baseUrl;
 
+    /**
+     * Load gateway configuration from package config file.
+     */
     public function __construct()
     {
-        $this->merchantId = config('smart-payment.gateways.zarinpal.merchant_id');
-        $this->sandbox = config('smart-payment.gateways.zarinpal.sandbox', false);
+        $this->merchantId = config('smart-payment.merchant_id');
+        $this->sandbox = config('smart-payment.sandbox', false);
+
+        // Set base URL depending on sandbox mode
         $this->baseUrl = $this->sandbox
             ? 'https://sandbox.zarinpal.com/pg/v4/payment/request.json'
             : 'https://payment.zarinpal.com/pg/v4/payment/request.json';
-
     }
 
     /**
-     * @throws ConnectionException
-     * @throws Exception
+     * Initiates a payment request to Zarinpal and returns the redirect URL.
+     *
+     * @param float $amount Payment amount in Toman
+     * @param string $callbackUrl URL to redirect after payment
+     * @param array $meta Optional metadata (email, mobile, description)
+     * @return array Contains 'authority' and 'redirect_url'
+     *
+     * @throws ConnectionException If HTTP request fails
+     * @throws Exception If Zarinpal returns an error code
      */
     public function initiatePayment(float $amount, string $callbackUrl, array $meta = []): mixed
     {
@@ -47,7 +66,6 @@ class ZarinpalGateway implements PaymentGatewayInterface, VerifiesTransactionsIn
                 'mobile' => $meta['mobile'] ?? null,
             ],
         ]);
-
 
         $data = $response->json();
 
@@ -69,16 +87,19 @@ class ZarinpalGateway implements PaymentGatewayInterface, VerifiesTransactionsIn
     }
 
     /**
-     * @throws ConnectionException
-     * @throws Exception
+     * Verifies the transaction after user returns from Zarinpal.
+     *
+     * @param array $requestData Contains 'Authority', 'Status', and 'Amount'
+     * @return array Verification result including ref ID, card info, and fees
+     *
+     * @throws ConnectionException If HTTP request fails
+     * @throws Exception If payment was canceled or data is invalid
      */
     public function verify(array $requestData): array
     {
-
         $this->baseUrl = $this->sandbox
             ? 'https://sandbox.zarinpal.com/pg/v4/payment/verify.json'
             : 'https://payment.zarinpal.com/pg/v4/payment/verify.json';
-
 
         $authority = $requestData['Authority'] ?? null;
         $status = $requestData['Status'] ?? null;
@@ -92,13 +113,14 @@ class ZarinpalGateway implements PaymentGatewayInterface, VerifiesTransactionsIn
         ])->post($this->baseUrl, [
             'merchant_id' => $this->merchantId,
             'authority' => $authority,
-            'amount' => (int)$requestData['Amount'], // در پروژه واقعی، مقدار باید از DB خونده شه
+            'amount' => (int)$requestData['Amount'],
         ]);
 
         $data = $response->json();
 
         Log::info('Zarinpal PaymentVerification', ['response' => $data]);
 
+        // بررسی کد پاسخ و استخراج اطلاعات تراکنش
         if (isset($data['data']['code'])) {
             if ($data['data']['code'] == 100) {
                 return [
@@ -108,8 +130,8 @@ class ZarinpalGateway implements PaymentGatewayInterface, VerifiesTransactionsIn
                     'CardPan' => $data['data']['card_pan'],
                     'Fee' => $data['data']['fee'],
                     'FeeType' => $data['data']['fee_type'],
-                    'ShaparakFee'=>$data['data']['shaparak_fee'],
-                    'OrderId'=>$data['data']['order_id'],
+                    'ShaparakFee' => $data['data']['shaparak_fee'],
+                    'OrderId' => $data['data']['order_id'],
                 ];
             } elseif ($data['data']['code'] == 101) {
                 return [
@@ -122,11 +144,21 @@ class ZarinpalGateway implements PaymentGatewayInterface, VerifiesTransactionsIn
         return ['error' => 'Payment failed or unauthorized transaction'];
     }
 
+    /**
+     * Returns the redirect URL for the payment gateway.
+     *
+     * @return string
+     */
     public function getRedirectUrl(): string
     {
         return $this->redirectUrl;
     }
 
+    /**
+     * Indicates whether the user should be redirected to the gateway.
+     *
+     * @return bool
+     */
     public function shouldRedirect(): bool
     {
         return true;

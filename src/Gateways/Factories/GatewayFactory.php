@@ -1,6 +1,6 @@
 <?php
 
-namespace SmartPayment\Factories;
+namespace SmartPayment\Gateways\Factories;
 
 use Illuminate\Support\Facades\Config;
 use InvalidArgumentException;

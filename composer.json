@@ -29,5 +29,7 @@
         "release": [
             "@php release.php"
         ]
-    }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }

@@ -9,6 +9,14 @@ use SmartPayment\Contracts\PaymentGatewayInterface;
 use SmartPayment\Contracts\VerifiesTransactionsInterface;
 use Exception;
 
+/**
+ * Class ParsianGateway
+ *
+ * Handles payment initiation and verification via Zarinpal API.
+ * Implements SmartPayment's gateway contracts for unified integration.
+ *
+ * @package SmartPayment\Gateways
+ */
 class ParsianGateway implements PaymentGatewayInterface, VerifiesTransactionsInterface
 {
     protected string $merchantId;
@@ -17,17 +25,28 @@ class ParsianGateway implements PaymentGatewayInterface, VerifiesTransactionsInt
     protected string $redirectUrl;
     protected string $baseUrl;
 
+    /**
+     * Initializes gateway configuration from package config file.
+     */
     public function __construct()
     {
-        $this->merchantId = config('smart-payment.gateways.zarinpal.merchant_id');
-        $this->sandbox = config('smart-payment.gateways.zarinpal.sandbox', false);
+        $this->merchantId = config('smart-payment.merchant_id');
+        $this->sandbox = config('smart-payment.sandbox', false);
+
+        // Set base API URL depending on sandbox mode
         $this->baseUrl = $this->sandbox
             ? 'https://sandbox.zarinpal.com/pg/v4/payment/request.json'
             : 'https://payment.zarinpal.com/pg/v4/payment/request.json';
-
     }
 
     /**
+     * Sends a payment request to Zarinpal and returns the authority and redirect URL.
+     *
+     * @param float $amount Payment amount in Toman
+     * @param string $callbackUrl URL to redirect after payment
+     * @param array $meta Optional metadata (email, mobile, description)
+     * @return array Contains 'authority' and 'redirect_url'
+     *
      * @throws ConnectionException
      * @throws Exception
      */
@@ -47,7 +66,6 @@ class ParsianGateway implements PaymentGatewayInterface, VerifiesTransactionsInt
                 'mobile' => $meta['mobile'] ?? null,
             ],
         ]);
-
 
         $data = $response->json();
 
@@ -69,16 +87,19 @@ class ParsianGateway implements PaymentGatewayInterface, VerifiesTransactionsInt
     }
 
     /**
+     * Verifies the transaction after user returns from the gateway.
+     *
+     * @param array $requestData Contains 'Authority', 'Status', and 'Amount'
+     * @return array Verification result including ref ID, card info, and fees
+     *
      * @throws ConnectionException
      * @throws Exception
      */
     public function verify(array $requestData): array
     {
-
         $this->baseUrl = $this->sandbox
             ? 'https://sandbox.zarinpal.com/pg/v4/payment/verify.json'
             : 'https://payment.zarinpal.com/pg/v4/payment/verify.json';
-
 
         $authority = $requestData['Authority'] ?? null;
         $status = $requestData['Status'] ?? null;
@@ -92,13 +113,14 @@ class ParsianGateway implements PaymentGatewayInterface, VerifiesTransactionsInt
         ])->post($this->baseUrl, [
             'merchant_id' => $this->merchantId,
             'authority' => $authority,
-            'amount' => (int)$requestData['Amount'], // در پروژه واقعی، مقدار باید از DB خونده شه
+            'amount' => (int)$requestData['Amount'],
         ]);
 
         $data = $response->json();
 
         Log::info('Zarinpal PaymentVerification', ['response' => $data]);
 
+        // بررسی کد پاسخ و استخراج اطلاعات تراکنش
         if (isset($data['data']['code'])) {
             if ($data['data']['code'] == 100) {
                 return [
@@ -122,11 +144,21 @@ class ParsianGateway implements PaymentGatewayInterface, VerifiesTransactionsInt
         return ['error' => 'Payment failed or unauthorized transaction'];
     }
 
+    /**
+     * Returns the redirect URL for the payment gateway.
+     *
+     * @return string
+     */
     public function getRedirectUrl(): string
     {
         return $this->redirectUrl;
     }
 
+    /**
+     * Indicates whether the user should be redirected to the gateway.
+     *
+     * @return bool
+     */
     public function shouldRedirect(): bool
     {
         return true;
