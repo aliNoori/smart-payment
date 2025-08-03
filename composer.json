@@ -2,7 +2,7 @@
     "name": "amedev/smart-payment",
     "description": "A smart and extensible Laravel payment system",
     "type": "library",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "license": "MIT",
     "authors": [
         {
